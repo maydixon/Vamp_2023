@@ -1,0 +1,198 @@
+---
+title: "Allogrooming data 2023"
+output: html_notebook
+---
+
+
+### Libraries
+```{r libraries}
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(rcpp)
+library(tidyverse)
+
+```
+
+### Load data
+```{r load data}
+# bat names and states
+v2022_bats <- read_excel("2022_vampire_data.xlsx", sheet = "bats")
+View(v2022_bats) 
+
+# allogrooming data
+v2022_allogr <- read_excel("2022_vampire_data.xlsx", 
+    sheet = "Flight_cage", col_types = c("text", 
+        "text", "numeric", "numeric", "numeric", 
+        "text", "text", "numeric", "text", 
+        "text", "text", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "text", "skip"))
+
+# View(v2022_allogr)  
+
+```
+
+### Cleaning 
+```{r cleaning}
+
+
+#make the text in actor and receiver lowercase (to match bat names)
+v2022_allogr <- v2022_allogr %>% mutate(actor= tolower(actor), receiver = tolower(receiver)) 
+
+#table with just the various bat names 
+v2022_names <- v2022_bats %>% select(bat_name, formal_ID, new_formal_ID)
+
+
+# rename to human readable names with year
+
+      # add "juvenil" to v2022_names
+v2022_names <- rbind(v2022_names, c("juvenil", "juvenil", "juvenil"))
+
+      # add 22 to names (e.g. bea22)
+v2022_names <- v2022_names %>% mutate(bat_name_full = paste0(bat_name, "22"))
+
+      #make long version of names by the names I want 
+nameslong <- v2022_names %>%
+  gather(ID_type, IDS, c(bat_name, formal_ID, new_formal_ID), na.rm = TRUE) %>%
+  arrange(bat_name_full)
+View(nameslong)
+
+      #join by actor to add actor names(match IDS and actor)
+v2022_allogr <- v2022_allogr %>%
+  left_join(nameslong, by = c("actor" = "IDS")) %>%
+  select( - ID_type) %>%
+      rename(actor_name = bat_name_full)
+View(v2022_allogr)
+
+      # join by receiver to add receiver names
+v2022_allogr <- v2022_allogr %>%
+  left_join(nameslong, by = c("receiver" = "IDS")) %>%
+  select( - ID_type) %>%
+      rename(receiver_name = bat_name_full)
+
+
+#remove rows where actor or receiver is NA
+v2022_allogr <- v2022_allogr %>%
+      filter(!is.na(actor)) %>%
+      filter(!is.na(receiver))
+
+#clean  groupnames
+v2022_allogr %>% select(group) %>% unique()
+
+v2022_allogr <- v2022_allogr %>% mutate(group = recode(
+      group,
+      "c" = "Chorrera",
+      "t" ="Tolé",
+      "b" = "Bayano"
+))
+
+
+```
+
+### cleaning pt 2
+```{r cleaning 2}
+## unique actors
+unique(v2022_allogr$actor_name)
+
+## remove rows where actor or receiver are NA
+nrow(v2022_allogr)
+
+v2022_allogr <- v2022_allogr %>%
+      filter(actor_name !="NA") %>%
+      filter(receiver_name !="NA")
+
+nrow(v2022_allogr) #1524
+
+# remove rows where actor and receiver are the same 
+v2022_allogr <- v2022_allogr[v2022_allogr$actor_name != v2022_allogr$receiver_name, ]
+
+nrow(v2022_allogr) #1359
+
+
+```
+
+### Observations per individual
+```{r Obs per individual}
+
+# of observations
+nrow(v2022_allogr) #1359
+
+# observations per individual
+(obs_per_individual <- v2022_allogr %>%
+      group_by(actor_name) %>%
+      summarize (n= n()) )
+
+#observations without juveniles (not saves) #726
+v2022_allogr %>% 
+      filter(actor_name != "juvenil22") %>%
+      filter(receiver_name != "juvenil22") %>% nrow()
+
+```
+
+#Observation matrix
+```{r obs matrix}
+#  create matrix of # observations from each actor and receiver
+(obs_pair <- v2022_allogr %>% group_by(actor_name,receiver_name, group) %>% summarise(n = n()))
+
+      
+      # or : v2022_allogr %>% count(actor,receiver )
+
+# remove "juveniles as receivers" grooming values: 
+(obs_pair <- obs_pair %>%
+      filter(receiver_name != "juvenil22") %>% #remove juveniles from receivers (most of juvees)
+      arrange(-n))
+
+# arrange by group
+(obs_pair <- obs_pair %>%
+      arrange(group))
+
+
+#filtering for living bats. (shouldn't include juvenile actors) (chorrera, tole,)
+(living_bats <- 
+      v2022_bats %>% select(bat_name, deceased_premerge) %>%
+      filter( is.na(deceased_premerge)) %>%
+      mutate(bat_name_full = paste0(bat_name, "22")) %>%
+      select(-bat_name, -deceased_premerge) %>%
+      filter(bat_name_full != "NA22") )#removes juveniles, no names
+       #keep only NA for deceased
+    
+#obs per living bats # dump juvees
+v2022_allogr_living <- subset(v2022_allogr, actor_name %in% living_bats$bat_name_full) %>%
+      filter(receiver_name != "juvenil22")
+nrow(v2022_allogr_living)
+
+
+(obs_pair_living <- v2022_allogr_living %>% group_by(actor_name,receiver_name, group) %>% summarise(n = n()))
+
+
+```
+
+```{r corplots}
+# ggcorplot
+library(ggplot2)
+
+obs_pair_living$actor_name <- reorder(obs_pair_living$actor_name , obs_pair_living$n)
+
+ggplot(data = obs_pair_living, aes(x=actor_name, y=receiver_name, fill=n)) + 
+  geom_tile() +facet_wrap(~group, scales= "free") +
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1)) +
+       scale_fill_gradient2(low = "white", high = "red", 
+   space = "Lab", 
+   name="# grooming events") +
+      geom_text(aes(x=actor_name, y=receiver_name, label = n), color = "black", size = 4) +
+theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank() )
+
+#quen? whover that is is dead
+#move judy / analis pair to chorrera
+
+
+```
+
+
+
