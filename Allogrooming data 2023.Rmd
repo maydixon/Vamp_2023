@@ -88,6 +88,9 @@ v2022_allogr <- v2022_allogr %>% mutate(group = recode(
 ))
 
 
+# Find odd cases
+
+
 ```
 
 ### cleaning pt 2
@@ -119,29 +122,33 @@ nrow(v2022_allogr) #1359
 nrow(v2022_allogr) #1359
 
 # observations per individual
-(obs_per_individual <- v2022_allogr %>%
+obs_per_individual <- v2022_allogr %>%
       group_by(actor_name) %>%
-      summarize (n= n()) )
+      summarize (n= n()) %>%
+      arrange(-n) 
+write.csv(obs_per_individual, file = "obs_per_individual.csv")
 
 #observations without juveniles (not saves) #726
 v2022_allogr %>% 
       filter(actor_name != "juvenil22") %>%
       filter(receiver_name != "juvenil22") %>% nrow()
+     
 
 ```
 
 #Observation matrix
 ```{r obs matrix}
 #  create matrix of # observations from each actor and receiver
-(obs_pair <- v2022_allogr %>% group_by(actor_name,receiver_name, group) %>% summarise(n = n()))
+obs_pair <- v2022_allogr %>% group_by(actor_name,receiver_name, group) %>% summarise(n = n()) %>% arrange(-n)
 
       
       # or : v2022_allogr %>% count(actor,receiver )
 
 # remove "juveniles as receivers" grooming values: 
-(obs_pair <- obs_pair %>%
+obs_pair <- obs_pair %>%
       filter(receiver_name != "juvenil22") %>% #remove juveniles from receivers (most of juvees)
-      arrange(-n))
+      arrange(-n)
+write.csv(obs_pair, file = "observations_pairs.csv")
 
 # arrange by group
 (obs_pair <- obs_pair %>%
@@ -163,7 +170,7 @@ v2022_allogr_living <- subset(v2022_allogr, actor_name %in% living_bats$bat_name
 nrow(v2022_allogr_living)
 
 
-(obs_pair_living <- v2022_allogr_living %>% group_by(actor_name,receiver_name, group) %>% summarise(n = n()))
+obs_pair_living <- v2022_allogr_living %>% group_by(actor_name,receiver_name, group) %>% summarise(n = n())
 
 
 ```
@@ -174,7 +181,7 @@ library(ggplot2)
 
 obs_pair_living$actor_name <- reorder(obs_pair_living$actor_name , obs_pair_living$n)
 
-ggplot(data = obs_pair_living, aes(x=actor_name, y=receiver_name, fill=n)) + 
+obs_pair_matrix <- ggplot(data = obs_pair_living, aes(x=actor_name, y=receiver_name, fill=n)) + 
   geom_tile() +facet_wrap(~group, scales= "free") +
       theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1)) +
        scale_fill_gradient2(low = "white", high = "red", 
@@ -188,8 +195,9 @@ theme(
   panel.border = element_blank(),
   panel.background = element_blank() )
 
+ggsave("obs_pair_matrix.jpg")
 #quen? whover that is is dead
-#move judy / analis pair to chorrera
+#move judy / analysis pair to chorrera
 
 
 ```
