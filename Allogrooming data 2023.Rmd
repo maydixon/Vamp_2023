@@ -2,14 +2,15 @@
 title: "Allogrooming data 2023"
 output: html_notebook
 ---
-
+# mean and minimum grooming events/ bat
+# matrix where grooming actor is row and recipient is column, and the cell has the number of grooming. csv or excel is fine. I know you have these data because it's your heatmap.
 
 ### Libraries
 ```{r libraries}
 library(readxl)
 library(ggplot2)
 library(dplyr)
-library(rcpp)
+library(Rcpp)
 library(tidyverse)
 
 ```
@@ -89,52 +90,91 @@ v2022_allogr <- v2022_allogr %>% mutate(group = recode(
 
 
 # Find odd cases
+# fix Judy appearing in wrong group
 
+v2022_allogr <- v2022_allogr %>%
+       mutate( group = replace(group, actor_name =="judy22", "Chorrera")) %>%
+       mutate( group = replace(group, actor_name =="alanis22", "Chorrera")) 
 
 ```
 
 ### cleaning pt 2
 ```{r cleaning 2}
-## unique actors
-unique(v2022_allogr$actor_name)
+
+nrow(v2022_allogr) # # observations pre-cleaning
 
 ## remove rows where actor or receiver are NA
-nrow(v2022_allogr)
-
 v2022_allogr <- v2022_allogr %>%
       filter(actor_name !="NA") %>%
       filter(receiver_name !="NA")
 
-nrow(v2022_allogr) #1524
+nrow(v2022_allogr) #1524 # observations with no NA
 
 # remove rows where actor and receiver are the same 
 v2022_allogr <- v2022_allogr[v2022_allogr$actor_name != v2022_allogr$receiver_name, ]
 
-nrow(v2022_allogr) #1359
 
 
-```
-
-### Observations per individual
-```{r Obs per individual}
-
-# of observations
-nrow(v2022_allogr) #1359
-
-# observations per individual
-obs_per_individual <- v2022_allogr %>%
-      group_by(actor_name) %>%
-      summarize (n= n()) %>%
-      arrange(-n) 
-write.csv(obs_per_individual, file = "obs_per_individual.csv")
+nrow(v2022_allogr) # 1359 # observations with no same receiver/actors
 
 #observations without juveniles (not saves) #726
 v2022_allogr %>% 
       filter(actor_name != "juvenil22") %>%
-      filter(receiver_name != "juvenil22") %>% nrow()
-     
+      filter(receiver_name != "juvenil22") %>% nrow() #observations with no juveniles
+
+#Pull out names of living bats, no juveniles
+living_bats <- 
+      v2022_bats %>% select(bat_name, deceased_premerge) %>%
+      filter( is.na(deceased_premerge)) %>%
+      mutate(bat_name_full = paste0(bat_name, "22")) %>%
+      select(-bat_name, -deceased_premerge) %>%
+      filter(bat_name_full != "NA22") #removes juveniles, no names
+       #keep only NA for deceased
+
+# drop non-living bats, unnamed juveniles from grooming dataset
+v2022_allogr <- 
+      v2022_allogr %>%
+      filter( actor_name %in% living_bats$bat_name_full) %>%
+      filter( receiver_name %in% living_bats$bat_name_full) #%>%
+      #filter(actor_name != "quen22" | actor_name != "olive22")
+unique(v2022_allogr$actor_name)
+unique(v2022_allogr$receiver_name)
+
+nrow(v2022_allogr) #of observations with living bats alone
+```
+
+### Number of Observations per individual
+```{r Obs per individual}
+
+# of observations with usable data
+nrow(v2022_allogr) 
+
+# observations per individual by whether actor/ receiver/ interaction
+
+obs_per_individual <- v2022_allogr %>%
+      pivot_longer(
+            cols= c(actor_name, receiver_name), 
+            names_to = "interaction_role", 
+            values_to = "subject"
+      ) %>%
+      relocate(subject, interaction_role) %>% 
+          group_by(subject) %>%
+      summarize (total= n(),
+                 actor = sum(interaction_role=="actor_name"),
+                 receiver = sum(interaction_role=="receiver_name"),
+                 grooming = sum(behavior=="g", na.rm = TRUE),
+                 mouthlicking = sum(behavior=="m", na.rm = TRUE),
+                 aggression = sum(behavior=="X", na.rm = TRUE)
+                 ) %>%
+      arrange(-total)
+
+obs_per_individual
+
+#write.csv(obs_per_individual, file = "obs_per_individual.csv")
 
 ```
+
+# matrix where grooming actor is row and recipient is column, and the cell has the number of grooming. csv or excel is fine. I know you have these data because it's your heatmap.
 
 #Observation matrix
 ```{r obs matrix}
@@ -144,34 +184,19 @@ obs_pair <- v2022_allogr %>% group_by(actor_name,receiver_name, group) %>% summa
       
       # or : v2022_allogr %>% count(actor,receiver )
 
-# remove "juveniles as receivers" grooming values: 
-obs_pair <- obs_pair %>%
-      filter(receiver_name != "juvenil22") %>% #remove juveniles from receivers (most of juvees)
-      arrange(-n)
-write.csv(obs_pair, file = "observations_pairs.csv")
+
+#write.csv(obs_pair, file = "observations_pairs.csv")
 
 # arrange by group
 (obs_pair <- obs_pair %>%
       arrange(group))
 
 
-#filtering for living bats. (shouldn't include juvenile actors) (chorrera, tole,)
-(living_bats <- 
-      v2022_bats %>% select(bat_name, deceased_premerge) %>%
-      filter( is.na(deceased_premerge)) %>%
-      mutate(bat_name_full = paste0(bat_name, "22")) %>%
-      select(-bat_name, -deceased_premerge) %>%
-      filter(bat_name_full != "NA22") )#removes juveniles, no names
-       #keep only NA for deceased
-    
-#obs per living bats # dump juvees
-v2022_allogr_living <- subset(v2022_allogr, actor_name %in% living_bats$bat_name_full) %>%
-      filter(receiver_name != "juvenil22")
-nrow(v2022_allogr_living)
 
 
-obs_pair_living <- v2022_allogr_living %>% group_by(actor_name,receiver_name, group) %>% summarise(n = n())
 
+obs_pair_living <- v2022_allogr %>% group_by(actor_name,receiver_name, group) %>% summarise(n = n())
+obs_pair_living 
 
 ```
 
@@ -181,8 +206,8 @@ library(ggplot2)
 
 obs_pair_living$actor_name <- reorder(obs_pair_living$actor_name , obs_pair_living$n)
 
-obs_pair_matrix <- ggplot(data = obs_pair_living, aes(x=actor_name, y=receiver_name, fill=n)) + 
-  geom_tile() +facet_wrap(~group, scales= "free") +
+obs_pair_matrix <- ggplot(data = obs_pair_living, aes(x=actor_name, y=receiver_name, fill=n)) + #
+  geom_tile() +facet_wrap(~group, scales= "free", dir = "v") +
       theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1)) +
        scale_fill_gradient2(low = "white", high = "red", 
    space = "Lab", 
@@ -195,6 +220,7 @@ theme(
   panel.border = element_blank(),
   panel.background = element_blank() )
 
+obs_pair_matrix 
 ggsave("obs_pair_matrix.jpg")
 #quen? whover that is is dead
 #move judy / analysis pair to chorrera
