@@ -12,6 +12,7 @@ library(ggplot2)
 library(dplyr)
 library(Rcpp)
 library(tidyverse)
+library(networkD3)
 
 ```
 
@@ -22,15 +23,31 @@ v2022_bats <- read_excel("2022_vampire_data.xlsx", sheet = "bats")
 
 
 # allogrooming data
+
 v2022_allogr <- read_excel("2022_vampire_data.xlsx", 
     sheet = "Flight_cage", col_types = c("text", 
-        "text", "numeric", "numeric", "numeric", 
-        "text", "text", "numeric", "text", 
         "text", "text", "numeric", "numeric", 
+        "numeric", "numeric", "text", "text", 
+        "text", "text", "text", "numeric", 
         "numeric", "numeric", "numeric", 
-        "numeric", "numeric", "text", "skip"))
+        "numeric", "numeric", "numeric", 
+        "text", "text", "text", "text"))
+#View(v2022_allogr)
 
-# View(v2022_allogr)  
+v2022_focal  <- read_excel("2022_vampire_data.xlsx", 
+     sheet = "Focal_pruebas", col_types = c("text", 
+        "text", "text", "numeric", "numeric", 
+        "numeric", "numeric", "text", "text", 
+        "text", "text", "text", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "text", "text", "text", "text",
+        "text", "text", "text"))
+
+
+# combine focal (fasting and non-fasting) and security camera data 
+v2022_allogr <-
+      bind_rows(v2022_allogr, v2022_focal)
 
 ```
 
@@ -40,6 +57,9 @@ v2022_allogr <- read_excel("2022_vampire_data.xlsx",
 
 #make the text in actor and receiver lowercase (to match bat names)
 v2022_allogr <- v2022_allogr %>% mutate(actor= tolower(actor), receiver = tolower(receiver)) 
+
+#make the text in behavior lowercase (to be consistent)
+v2022_allogr <- v2022_allogr %>% mutate(behavior= tolower(behavior)) 
 
 #table with just the various bat names 
 v2022_names <- v2022_bats %>% select(bat_name, formal_ID, new_formal_ID)
@@ -85,7 +105,8 @@ v2022_allogr <- v2022_allogr %>% mutate(group = recode(
       group,
       "c" = "Chorrera",
       "t" ="Tolé",
-      "b" = "Bayano"
+      "b" = "Bayano", 
+      "Tole" = "Tolé"
 ))
 
 
@@ -96,20 +117,23 @@ v2022_allogr <- v2022_allogr %>%
        mutate( group = replace(group, actor_name =="judy22", "Chorrera")) %>%
        mutate( group = replace(group, actor_name =="alanis22", "Chorrera")) %>%
        mutate( group = replace(group, actor_name == "isla22", "Bayano")) %>%
-       mutate( group = replace(group, actor_name == "raya22", "Bayano")) %>%              
+       mutate( group = replace(group, actor_name == "raya22", "Bayano")) %>%
+      mutate( group = replace(group, actor_name == "helen22", "Chorrera")) %>%
                      # isla and raya should always be labelled as bayano
-                    
+                    #helen and d should both be in Chorrera, not "NA"
        filter(!(group== "Tolé" & actor_name == "bea22")) %>% # there are two rows where bea, a chorrera bat is marked as tole, and interacts iwth a tole bat, Tracy. Not sure what's going on, so dropping completely for now
        filter(!(actor_name== "zula22" & group == "Bayano")) #same for this row where zula (tole) in in Bayano
 
-      
 
-#bea should always be chorrera, not tole bea- tracy interaction, that can't be right, find the error
+#
+# v2022_allogr %>%
+#            filter(is.na(group) & actor_name == "helen22" ) %>% #& group != "Chorrera") 
+#            select(group) %>% unique()
 
-##Zula should never be in Bayano grooming hilda
+     
 
-v2022_allogr %>%
-      filter(actor_name== "zula22" & group == "Bayano")
+
+
 
 ```
 
@@ -158,6 +182,32 @@ unique(v2022_allogr$receiver_name)
 nrow(v2022_allogr) #of observations with living bats alone
 ```
 
+### Trade actor and receiver for mouthlicking: 
+(When we score this, it is easiest to score who is doing the mouthlicking as the actor. But to think about who is actually receiving the blood, these need to be switched
+```{r}
+
+
+#values preswitch 
+head(v2022_allogr %>%
+      filter(behavior == "m"))
+head(v2022_allogr %>%
+      filter(behavior == "g"))
+
+#use "which" (behavior = m) to find the row numbers to change, then  rev to swap the values in actor/ receiver
+
+v2022_allogr[which(v2022_allogr$behavior == "m"), c("actor", "receiver")] <- rev(v2022_allogr[which(v2022_allogr$behavior == "m"), c("actor", "receiver")])
+
+#checking values post switch (m should have changed, g should not)
+head(v2022_allogr %>%
+      filter(behavior == "m"))
+head(v2022_allogr %>%
+      filter(behavior == "g"))
+
+
+```
+
+
+
 ### Number of Observations per individual
 ```{r Obs per individual}
 
@@ -173,40 +223,80 @@ obs_per_individual <- v2022_allogr %>%
             values_to = "subject"
       ) %>%
       relocate(subject, interaction_role) %>% 
-          group_by(subject) %>%
+          group_by(group, subject) %>% #remove group
       summarize (total= n(),
                  actor = sum(interaction_role=="actor_name"),
                  receiver = sum(interaction_role=="receiver_name"),
                  grooming = sum(behavior=="g", na.rm = TRUE),
                  mouthlicking = sum(behavior=="m", na.rm = TRUE),
-                 aggression = sum(behavior=="X", na.rm = TRUE)
+                 aggression = sum(behavior=="x", na.rm = TRUE) #, 
+                 #copulation = sum(behavior=="c", na.rm = TRUE)
                  ) %>%
-      arrange(-total)
+      arrange(group, -total)
 
 obs_per_individual
 
-#write.csv(obs_per_individual, file = "obs_per_individual.csv")
+#write.csv(obs_per_individual, file = "obs_per_individual_group.csv")
 
 ```
 
-# matrix where grooming actor is row and recipient is column, and the cell has the number of grooming. csv or excel is fine. I know you have these data because it's your heatmap.
-
-
-#Observation edge list 
+# Matrix where grooming actor is row and recipient is column, and the cell has the number of grooming. 
+# same for mouthlicking
+#accuracy 
+#Observation edge list     
 ```{r obs matrix}
+#basic matrix of all observations
+
+obs_pair <- v2022_allogr %>%
+      filter(behavior == "m") %>%
+      group_by(actor_name,receiver_name, group) %>%  # or : v2022_allogr %>% count(actor,receiver )
+      summarise(n = n()) %>% 
+      arrange(-n) %>%
+      group_by(group) %>%
+      complete(actor_name, receiver_name, fill = list(n=0)) #fill in missing combinations within group
+      # fill in NA,s with 0
+# remove rows where actor and receiver are the same      
+obs_pair <- obs_pair[obs_pair$actor_name != obs_pair$receiver_name, ]  
+
+
+
+# select only grooming edge list, and only mouthlicking edge list (should also do this for duration, rather than instances)
 #  create matrix of # observations from each actor and receiver
-obs_pair <- v2022_allogr %>% group_by(actor_name,receiver_name, group) %>% summarise(n = n()) %>% arrange(-n) #this is the edgelist 
 
+ObsMatrix <- function( data = data, Behavior) {
       
-      # or : v2022_allogr %>% count(actor,receiver )
+      
+obs_pair <- data %>%
+      filter(behavior == Behavior) %>%
+      group_by(actor_name,receiver_name, group) %>%  # or : v2022_allogr %>% count(actor,receiver )
+      summarise(n = n()) %>% 
+      arrange(-n) %>%
+      group_by(group) %>%
+      complete(actor_name, receiver_name, fill = list(n=0)) #fill in missing combinations within group
+      # fill in NA,s with 0
+# remove rows where actor and receiver are the same      
+obs_pair <- obs_pair[obs_pair$actor_name != obs_pair$receiver_name, ]  
+
+#this is the edgelist 
+     
 
 
-#write.csv(obs_pair, file = "observations_pairs.csv")
+write.csv(obs_pair, file = paste0("observations_pairs_", Behavior,  ".csv", sep =""))
 
-# arrange by group
-(obs_pair <- obs_pair %>%
-      arrange(group))
 
+#arrange by group
+obs_pair <- obs_pair %>%
+      arrange(group)
+
+return(obs_pair)
+      
+      
+}
+      
+obs_pair_mouthlicking <- ObsMatrix(data = v2022_allogr, Behavior = "m")      
+obs_pair_mouthlicking
+obs_pair_grooming <- ObsMatrix(data = v2022_allogr, Behavior = "g")  
+obs_pair_grooming
 ```
 
 ```{r}
@@ -232,9 +322,9 @@ a_b_edgelist_to_matrix <- function(el=el, symbol="_", directed= T, make.NA.zero=
 ####
 ##edits##
 a_b_edgelist_to_matrix <- function(a= el$a, r= el$r, y= el$y, make.NA.zero=T){
-  a <- a
-  r <- r
-  y <- y
+  a <- a #actor
+  r <- r #receiver
+  y <- y # response variable/ # interactions
   e <- data.frame(a,r,y, stringsAsFactors = F)
   require(igraph)
   if (make.NA.zero){
@@ -248,6 +338,7 @@ a_b_edgelist_to_matrix <- function(a= el$a, r= el$r, y= el$y, make.NA.zero=T){
     m[m==0] <- NA # relabel missing values as NA
     m <- m-1 # subtract one to adjust values back
     m
+    g
     }
 }
 
@@ -257,11 +348,12 @@ EL<- obs_pair
 #matrix of interactions for all indivduals
 vamp_matrix <- a_b_edgelist_to_matrix( a= EL$actor_name, r= EL$receiver_name, y=EL$n )
 vamp_matrix
-write.csv(vamp_matrix, "vamp_matrix.csv")
+write.csv(vamp_matrix, paste("vamp_matrix_",  ".csv", sep = ""))
 
 #separate matrix by group
 # dolly bea alanis,cher, dolly, helen, judy, fergie, luna, manon, nelly
 
+MakeEdgeLists <- function(EL = data, behavior = "g") {
 EL_list <- 
       EL %>%
       filter(group!="NA") %>% #remove any NA observations
@@ -275,15 +367,36 @@ list2env(EL_list, envir = .GlobalEnv) #put these names in the global environment
 Chorrera_matrix <-   a_b_edgelist_to_matrix( a= EL_Chorrera$actor_name, r= EL_Chorrera$receiver_name, y=EL_Chorrera$n, make.NA.zero = T)
 Chorrera_matrix 
 
+write.csv(Chorrera_matrix, paste0("matrix_",
+                                   behavior,
+                                  "_chorrera",
+                                  format(Sys.time(), "%Y-%m-%d"),
+                                  ".CSV"))
+    
+
 Tole_matrix <-   a_b_edgelist_to_matrix( a= EL_Tole$actor_name, r= EL_Tole$receiver_name, y=EL_Tole$n, make.NA.zero = T)
 Tole_matrix 
+
+write.csv(Tole_matrix , paste0("matrix_",
+                                   behavior,
+                                  "_tole",
+                                  format(Sys.time(), "%Y-%m-%d"),
+                                  ".CSV"))
+
 
 Bayano_matrix <-   a_b_edgelist_to_matrix( a= EL_Bayano$actor_name, r= EL_Bayano$receiver_name, y=EL_Bayano$n, make.NA.zero = T)
 Bayano_matrix 
 
+write.csv(Bayano_matrix, paste0("matrix_",
+                                   behavior,
+                                  "_bayano",
+                                  format(Sys.time(), "%Y-%m-%d"),
+                                  ".CSV"))
+}
 
+MakeEdgeLists(obs_pair_grooming, behavior = "g")
 
-
+MakeEdgeLists(obs_pair_mouthlicking, behavior = "m")
 
 ```
 
@@ -291,10 +404,37 @@ Bayano_matrix
 # ggcorplot
 library(ggplot2)
 
-obs_pair$actor_name <- reorder(obs_pair$actor_name , obs_pair$n)
+#obs_pair$actor_name <- reorder(obs_pair$actor_name , obs_pair$n)
+obs_pair$receiver_name <- fct_relevel(obs_pair$receiver_name) #order both actor and receiver abc
+obs_pair$actor_name <- fct_relevel(obs_pair$actor_name) 
+
 
 obs_pair_matrix <- ggplot(data = obs_pair, aes(x=actor_name, y=receiver_name, fill=n)) + #
-  geom_tile() +facet_wrap(~group, scales= "free", dir = "v") +
+  geom_tile() +
+      facet_wrap(~group, scales= "free", dir = "v") +
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1)) +
+       scale_fill_gradient2(low = "white", high = "red", 
+   space = "Lab", 
+   name="# grooming events") +
+      geom_text(aes(x=actor_name, y=receiver_name, label = n), color = "black", size = 4) +
+theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank() ) #+
+#xlim(levels(obs_pair$actor_name))
+
+obs_pair_matrix 
+#ggsave("obs_pair_matrix.jpg")
+#quen? whover that is is dead
+#move judy / analysis pair to chorrera
+
+obs_pair %>%
+     # filter(group== "Chorrera") %>%
+      ggplot(data = ., aes(x=actor_name, y=receiver_name, fill=n)) + #
+  geom_tile() +
+      facet_wrap(~group, scales= "free", dir = "v") +
       theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1)) +
        scale_fill_gradient2(low = "white", high = "red", 
    space = "Lab", 
@@ -307,13 +447,82 @@ theme(
   panel.border = element_blank(),
   panel.background = element_blank() )
 
-obs_pair_matrix 
-#ggsave("obs_pair_matrix.jpg")
-#quen? whover that is is dead
-#move judy / analysis pair to chorrera
+#ggsave("chorrera_heatmap.jpg")
 
 
 ```
+
+```{r}
+     
+       ggplot(data = v2022_allogr, aes(x=actor_name)) + #
+      geom_bar() +
+      facet_grid(rows = vars(actor_name), cols = vars(receiver_name), drop = FALSE)
+```
+
+
+```{r}
+library(networkD3)
+
+v2022_allogr %>%
+      filter(behavior == "m" | behavior == "g") %>%
+     # filter(group == "Bayano" | group == "Tolé") %>%
+      group_by(group) %>%
+
+  simpleNetwork(height="100px", width="100px",        
+        Source = 20,                 # column number of source
+        Target = 21,                 # column number of target
+        linkDistance = 50,          # distance between node. Increase this value to have more space between nodes
+        charge = -50,                # numeric value indicating either the strength of the node repulsion (negative value) or attraction (positive value)
+        fontSize = 14,               # size of the node names
+        fontFamily = "serif",       # font og node names
+        linkColour = "#666",        # colour of edges, MUST be a common colour for the whole graph
+        nodeColour = "#69b3a2",     # colour of nodes, MUST be a common colour for the whole graph
+        opacity = 0.9,              # opacity of nodes. 0=transparent. 1=no transparency
+        zoom = T                    # Can you zoom on the figure?
+        )    
+#network with node size weighted by degree
+network <- function(data, LabelNumber = 0.7) {
+      network <-   data %>%
+        filter(behavior == "m" | behavior == "g") %>%
+      #filter(group == "Chorrera") %>%
+        select(actor_name, receiver_name) %>%
+# Turn it into igraph object
+ graph_from_data_frame( directed=T) #d=links,
+ 
+# Count the number of degree for each node:
+deg <- degree(network, mode="all")
+ 
+# Plot
+
+plot <- plot(network,
+      vertex.size=deg*.09,
+     edge.arrow.size=.2, 
+     edge.curved=.02,
+     vertex.color="orange", 
+     vertex.frame.color="#555555",
+     vertex.label.color= "black",
+     vertex.label.cex=LabelNumber)     #vertex.size=deg*6, vertex.color=rgb(0.1,0.7,0.8,0.5)
+
+return(plot)
+}
+
+#plot each group's network seperately
+v2022_allogr %>%
+      filter(group == "Chorrera" | group == "Tolé" |group == "Bayano" ) %>%
+      group_by(group) %>%
+      #group_split(group) %>%
+      #map(~network(.))
+      group_walk(~network(.))
+
+vamp_2022_networks$plot
+
+v2022_allogr %>%
+      filter(group == "Chorrera") %>%
+      network()
+ggsave("chorrera_network.jpg")
+
+```
+
 
 
 
