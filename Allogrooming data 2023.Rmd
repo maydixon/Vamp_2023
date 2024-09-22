@@ -23,7 +23,6 @@ v2022_bats <- read_excel("2022_vampire_data.xlsx", sheet = "bats")
 
 
 # allogrooming data
-
 v2022_allogr <- read_excel("2022_vampire_data.xlsx", 
     sheet = "Flight_cage", col_types = c("text", 
         "text", "text", "numeric", "numeric", 
@@ -32,23 +31,43 @@ v2022_allogr <- read_excel("2022_vampire_data.xlsx",
         "numeric", "numeric", "numeric", 
         "numeric", "numeric", "numeric", 
         "text", "text", "text", "text"))
+
+# v2022_allogr <- read_excel("2022_vampire_data.xlsx", 
+#     sheet = "Flight_cage", col_types = c("text", 
+#         "text", "text", "numeric", "numeric", 
+#         "numeric", "numeric", "text", "text", 
+#         "text", "text", "text", "numeric", 
+#         "numeric", "numeric", "numeric", 
+#         "numeric", "numeric", "numeric", 
+#         "text", "text", "text", "text"))
 #View(v2022_allogr)
 
-v2022_focal  <- read_excel("2022_vampire_data.xlsx", 
-     sheet = "Focal_pruebas", col_types = c("text", 
+v2022_focal <- read_excel("2022_vampire_data.xlsx", 
+    sheet = "Focal_pruebas", col_types = c("text", 
         "text", "text", "numeric", "numeric", 
         "numeric", "numeric", "text", "text", 
         "text", "text", "text", "numeric", 
         "numeric", "numeric", "numeric", 
         "numeric", "numeric", "numeric", 
-        "text", "text", "text", "text",
-        "text", "text", "text"))
+        "text", "text", "text", "text", "text", 
+        "numeric", "numeric"))
+
+# v2022_focal  <- read_excel("2022_vampire_data.xlsx", 
+#      sheet = "Focal_pruebas", col_types = c("text", 
+#         "text", "text", "numeric", "numeric", 
+#         "numeric", "numeric", "text", "text", 
+#         "text", "text", "text", "numeric", 
+#         "numeric", "numeric", "numeric", 
+#         "numeric", "numeric", "numeric", 
+#         "text", "text", "text", "text",
+#         "text", "text", "text"))
 
 
 # combine focal (fasting and non-fasting) and security camera data 
 v2022_allogr <-
       bind_rows(v2022_allogr, v2022_focal)
-
+view(v2022_allogr)
+str(v2022_allogr)
 ```
 
 ### Cleaning 
@@ -62,7 +81,7 @@ v2022_allogr <- v2022_allogr %>% mutate(actor= tolower(actor), receiver = tolowe
 v2022_allogr <- v2022_allogr %>% mutate(behavior= tolower(behavior)) 
 
 #table with just the various bat names 
-v2022_names <- v2022_bats %>% select(bat_name, formal_ID, new_formal_ID)
+v2022_names <- v2022_bats %>% select(bat_name, formal_ID, new_formal_ID, source)
 
 
 # rename to human readable names with year
@@ -71,7 +90,8 @@ v2022_names <- v2022_bats %>% select(bat_name, formal_ID, new_formal_ID)
 v2022_names <- rbind(v2022_names, c("juvenil", "juvenil", "juvenil"))
 
       # add 22 to names (e.g. bea22)
-v2022_names <- v2022_names %>% mutate(bat_name_full = paste0(bat_name, "22"))
+v2022_names <- v2022_names %>% mutate(bat_name_full = paste( sep = "_", source, paste(bat_name, "22", sep="")))
+view(v2022_names)
 
       #make long version of names by the names I want 
 nameslong <- v2022_names %>%
@@ -91,7 +111,7 @@ v2022_allogr <- v2022_allogr %>%
   left_join(nameslong, by = c("receiver" = "IDS")) %>%
   select( - ID_type) %>%
       rename(receiver_name = bat_name_full)
-
+# txdld
 
 #remove rows where actor or receiver is NA
 v2022_allogr <- v2022_allogr %>%
@@ -119,16 +139,22 @@ v2022_allogr <- v2022_allogr %>%
        mutate( group = replace(group, actor_name == "isla22", "Bayano")) %>%
        mutate( group = replace(group, actor_name == "raya22", "Bayano")) %>%
       mutate( group = replace(group, actor_name == "helen22", "Chorrera")) %>%
+      mutate( group = replace(group, actor_name == "zula22", "Tolé")) %>%
                      # isla and raya should always be labelled as bayano
                     #helen and d should both be in Chorrera, not "NA"
        filter(!(group== "Tolé" & actor_name == "bea22")) %>% # there are two rows where bea, a chorrera bat is marked as tole, and interacts iwth a tole bat, Tracy. Not sure what's going on, so dropping completely for now
        filter(!(actor_name== "zula22" & group == "Bayano")) #same for this row where zula (tole) in in Bayano
 
 
+#find uilani and zula exmples
+
 #
 # v2022_allogr %>%
-#            filter(is.na(group) & actor_name == "helen22" ) %>% #& group != "Chorrera") 
+#            filter(is.na(group) & actor_name == "helen22" ) %>% #& group != "Chorrera")
 #            select(group) %>% unique()
+
+v2022_allogr %>%
+      filter(group == "Chorrera" & actor_name == "zula22")
 
      
 
@@ -178,6 +204,11 @@ v2022_allogr <-
       #filter(actor_name != "quen22" | actor_name != "olive22")
 unique(v2022_allogr$actor_name)
 unique(v2022_allogr$receiver_name)
+
+# what behaviors are there? 
+unique(v2022_allogr$behavior) # a number of these to clarify
+
+
 
 nrow(v2022_allogr) #of observations with living bats alone
 ```
@@ -246,6 +277,22 @@ obs_per_individual
 #Observation edge list     
 ```{r obs matrix}
 #basic matrix of all observations
+# come back and fix 
+obs_pair_all_m <- v2022_allogr %>%
+      mutate(actor_name = paste(group, actor_name, sep = "_"), 
+             receiver
+      filter(behavior == "m") %>%
+      group_by(actor_name,receiver_name) %>%  # or : v2022_allogr %>% count(actor,receiver )
+      summarise(n = n()) %>% 
+      arrange(-n) %>%
+      group_by(group) %>%
+      complete(actor_name, receiver_name, fill = list(n=0)) #fill in missing combinations within group
+      # fill in NA,s with 0
+# remove rows where actor and receiver are the same      
+obs_pair <- obs_pair[obs_pair$actor_name != obs_pair$receiver_name, ]  
+
+
+#by group
 
 obs_pair <- v2022_allogr %>%
       filter(behavior == "m") %>%
@@ -463,27 +510,28 @@ theme(
 ```{r}
 library(networkD3)
 
-v2022_allogr %>%
-      filter(behavior == "m" | behavior == "g") %>%
+x<- v2022_allogr %>%
+      #filter(behavior == "m" | behavior == "g") %>%
      # filter(group == "Bayano" | group == "Tolé") %>%
       group_by(group) %>%
 
-  simpleNetwork(height="100px", width="100px",        
+simpleNetwork( height="100px", width="100px",        
         Source = 20,                 # column number of source
         Target = 21,                 # column number of target
         linkDistance = 50,          # distance between node. Increase this value to have more space between nodes
         charge = -50,                # numeric value indicating either the strength of the node repulsion (negative value) or attraction (positive value)
         fontSize = 14,               # size of the node names
-        fontFamily = "serif",       # font og node names
+        fontFamily = "sansserif",       # font og node names
         linkColour = "#666",        # colour of edges, MUST be a common colour for the whole graph
         nodeColour = "#69b3a2",     # colour of nodes, MUST be a common colour for the whole graph
         opacity = 0.9,              # opacity of nodes. 0=transparent. 1=no transparency
         zoom = T                    # Can you zoom on the figure?
-        )    
+        )   
+x
 #network with node size weighted by degree
 network <- function(data, LabelNumber = 0.7) {
       network <-   data %>%
-        filter(behavior == "m" | behavior == "g") %>%
+        filter(behavior == "m") %>%
       #filter(group == "Chorrera") %>%
         select(actor_name, receiver_name) %>%
 # Turn it into igraph object
@@ -493,19 +541,25 @@ network <- function(data, LabelNumber = 0.7) {
 deg <- degree(network, mode="all")
  
 # Plot
-
 plot <- plot(network,
       vertex.size=deg*.09,
      edge.arrow.size=.2, 
      edge.curved=.02,
-     vertex.color="orange", 
-     vertex.frame.color="#555555",
+     vertex.color="#F4E2B0", 
+     vertex.frame.color="black",
      vertex.label.color= "black",
+     edge.color = "black",
+     fontFamily = "sans",
      vertex.label.cex=LabelNumber)     #vertex.size=deg*6, vertex.color=rgb(0.1,0.7,0.8,0.5)
 
+plot
 return(plot)
 }
-
+#"tan
+"#A37841""
+"#79603A"
+"#F4E2B0"
+"#413424"
 #plot each group's network seperately
 v2022_allogr %>%
       filter(group == "Chorrera" | group == "Tolé" |group == "Bayano" ) %>%
@@ -519,7 +573,14 @@ vamp_2022_networks$plot
 v2022_allogr %>%
       filter(group == "Chorrera") %>%
       network()
-ggsave("chorrera_network.jpg")
+#ggsave("chorrera_network.jpg")
+
+all_net <- v2022_allogr %>%
+      network()
+str(all_net)
+#ggsave("full_network.jpg")
+
+
 
 ```
 
