@@ -13,6 +13,8 @@ library(dplyr)
 library(Rcpp)
 library(tidyverse)
 library(networkD3)
+library(visNetwork)
+library(htmlwidgets)
 
 ```
 
@@ -89,8 +91,10 @@ v2022_names <- v2022_bats %>% select(bat_name, formal_ID, new_formal_ID, source)
       # add "juvenil" to v2022_names
 v2022_names <- rbind(v2022_names, c("juvenil", "juvenil", "juvenil"))
 
-      # add 22 to names (e.g. bea22)
-v2022_names <- v2022_names %>% mutate(bat_name_full = paste( sep = "_", source, paste(bat_name, "22", sep="")))
+      # add 22 to names (e.g. bea22), and a column with location attached as well 
+v2022_names <- v2022_names %>% 
+      mutate(bat_name_full = paste(bat_name, "22", sep="")) %>%
+      mutate(l_bat_name_full = paste( sep = "_", source, bat_name_full))
 view(v2022_names)
 
       #make long version of names by the names I want 
@@ -103,15 +107,23 @@ nameslong
 v2022_allogr <- v2022_allogr %>%
   left_join(nameslong, by = c("actor" = "IDS")) %>%
   select( - ID_type) %>%
-      rename(actor_name = bat_name_full)
+      rename(actor_name = bat_name_full) %>%
+      rename(l_actor_name = l_bat_name_full)
 
 
       # join by receiver to add receiver names
 v2022_allogr <- v2022_allogr %>%
   left_join(nameslong, by = c("receiver" = "IDS")) %>%
   select( - ID_type) %>%
-      rename(receiver_name = bat_name_full)
+      rename(receiver_name = bat_name_full) %>%
+      rename(l_receiver_name = l_bat_name_full) 
 # txdld
+
+#replace raya "capira" with "bayano"- her functional group
+v2022_allogr<- 
+      v2022_allogr %>%
+      mutate(l_receiver_name = recode(l_receiver_name, "capira_raya22" = "bayano_raya22")) %>%
+      mutate(l_actor_name = recode(l_actor_name, "capira_raya22" = "bayano_raya22"))
 
 #remove rows where actor or receiver is NA
 v2022_allogr <- v2022_allogr %>%
@@ -157,8 +169,13 @@ v2022_allogr %>%
       filter(group == "Chorrera" & actor_name == "zula22")
 
      
+v2022_allogr %>%
+      filter(actor_name == "nelly22" | receiver_name =="nelly22")
 
 
+#make date column
+v2022_allogr <- v2022_allogr %>%
+      mutate(date = make_datetime(year = year, month = month, day = day)) 
 
 
 ```
@@ -228,6 +245,14 @@ head(v2022_allogr %>%
 
 v2022_allogr[which(v2022_allogr$behavior == "m"), c("actor", "receiver")] <- rev(v2022_allogr[which(v2022_allogr$behavior == "m"), c("actor", "receiver")])
 
+#same for actor name, and l actor name 
+v2022_allogr[which(v2022_allogr$behavior == "m"), c("actor_name", "receiver_name")] <- rev(v2022_allogr[which(v2022_allogr$behavior == "m"), c("actor_name", "receiver_name")])
+
+
+v2022_allogr[which(v2022_allogr$behavior == "m"), c("l_actor_name", "l_receiver_name")] <- rev(v2022_allogr[which(v2022_allogr$behavior == "m"), c("l_actor_name", "l_receiver_name")])
+
+
+
 #checking values post switch (m should have changed, g should not)
 head(v2022_allogr %>%
       filter(behavior == "m"))
@@ -242,6 +267,7 @@ head(v2022_allogr %>%
 ### Number of Observations per individual
 ```{r Obs per individual}
 
+
 # of observations with usable data
 nrow(v2022_allogr) 
 
@@ -249,21 +275,21 @@ nrow(v2022_allogr)
 
 obs_per_individual <- v2022_allogr %>%
       pivot_longer(
-            cols= c(actor_name, receiver_name), 
+            cols= c(l_actor_name, l_receiver_name), 
             names_to = "interaction_role", 
             values_to = "subject"
       ) %>%
       relocate(subject, interaction_role) %>% 
-          group_by(group, subject) %>% #remove group
+          group_by( subject) %>% #remove group #group,
       summarize (total= n(),
-                 actor = sum(interaction_role=="actor_name"),
-                 receiver = sum(interaction_role=="receiver_name"),
+                 actor = sum(interaction_role=="l_actor_name"),
+                 receiver = sum(interaction_role=="l_receiver_name"),
                  grooming = sum(behavior=="g", na.rm = TRUE),
                  mouthlicking = sum(behavior=="m", na.rm = TRUE),
                  aggression = sum(behavior=="x", na.rm = TRUE) #, 
                  #copulation = sum(behavior=="c", na.rm = TRUE)
                  ) %>%
-      arrange(group, -total)
+      arrange( -total) #group,
 
 obs_per_individual
 
@@ -279,17 +305,16 @@ obs_per_individual
 #basic matrix of all observations
 # come back and fix 
 obs_pair_all_m <- v2022_allogr %>%
-      mutate(actor_name = paste(group, actor_name, sep = "_"), 
-             receiver
       filter(behavior == "m") %>%
-      group_by(actor_name,receiver_name) %>%  # or : v2022_allogr %>% count(actor,receiver )
+      group_by(l_actor_name,l_receiver_name) %>%  # or : v2022_allogr %>% count(actor,receiver )
       summarise(n = n()) %>% 
       arrange(-n) %>%
-      group_by(group) %>%
-      complete(actor_name, receiver_name, fill = list(n=0)) #fill in missing combinations within group
+     # group_by(group) %>%
+      ungroup() %>%
+      complete(.,l_actor_name, l_receiver_name, fill = list(n=0)) #fill in missing combinations within group
       # fill in NA,s with 0
 # remove rows where actor and receiver are the same      
-obs_pair <- obs_pair[obs_pair$actor_name != obs_pair$receiver_name, ]  
+obs_pair_all_m <- obs_pair_all_m[obs_pair_all_m$l_actor_name != obs_pair_all_m$l_receiver_name, ]  
 
 
 #by group
@@ -315,10 +340,11 @@ ObsMatrix <- function( data = data, Behavior) {
       
 obs_pair <- data %>%
       filter(behavior == Behavior) %>%
-      group_by(actor_name,receiver_name, group) %>%  # or : v2022_allogr %>% count(actor,receiver )
+      group_by(actor_name,receiver_name) %>%  # or : v2022_allogr %>% count(actor,receiver ) #group
       summarise(n = n()) %>% 
       arrange(-n) %>%
-      group_by(group) %>%
+     # group_by(group) %>%
+      ungroup() %>%
       complete(actor_name, receiver_name, fill = list(n=0)) #fill in missing combinations within group
       # fill in NA,s with 0
 # remove rows where actor and receiver are the same      
@@ -332,21 +358,68 @@ write.csv(obs_pair, file = paste0("observations_pairs_", Behavior,  ".csv", sep 
 
 
 #arrange by group
-obs_pair <- obs_pair %>%
-      arrange(group)
+# obs_pair <- obs_pair %>%
+#       arrange(group)
 
 return(obs_pair)
       
       
 }
-      
+ 
+#all interactions     
 obs_pair_mouthlicking <- ObsMatrix(data = v2022_allogr, Behavior = "m")      
 obs_pair_mouthlicking
+
 obs_pair_grooming <- ObsMatrix(data = v2022_allogr, Behavior = "g")  
 obs_pair_grooming
+obs_pair_aggression <- ObsMatrix(data = v2022_allogr, Behavior = "x") 
+obs_pair_aggression
+
+
+#premerge interactions
+
+obs_pair_mouthlicking_premerge <- v2022_allogr %>%
+      filter(date > "2024-06-26") %>%
+       ObsMatrix(data = ., Behavior = "m") 
+obs_pair_mouthlicking
+
+obs_pair_grooming <- ObsMatrix(data = v2022_allogr, Behavior = "g")  
+obs_pair_grooming
+obs_pair_aggression <- ObsMatrix(data = v2022_allogr, Behavior = "x") 
+obs_pair_aggression
+v2022_allogr %>%
+      filter(date > "2024-06-26") %>%
+       ObsMatrix(data = ., Behavior = "m")   
+
+
+```
+# list with ID and group of all individuals, sorted alphabetically
+```{r}
+bat_groups <- 
+      obs_per_individual %>%
+      select(subject) %>%
+       separate_wider_delim(subject, delim = "_", names = c("group", "bat_name_full")) %>%
+      arrange(bat_name_full) %>%
+      relocate(bat_name_full) %>%
+      mutate(color = recode(group, "bayano" = "#D32F27", "chorrera"= "#178B76", "tole" = "#EDB81D", "captive.born"= "gray"))
+
+
+
+
+  "#178B76"
+
+"#EDB81D"
+"#D32F27"
+
+
+"#C82B27"
+
+"#BC4B2E"
 ```
 
-```{r}
+
+
+```{r, edgelist to matrix}
 a_b_edgelist_to_matrix <- function(el=el, symbol="_", directed= T, make.NA.zero=T){
   a <- str_split(as.data.frame(el)[,1],symbol, simplify = TRUE)[,1]
   r <- str_split(as.data.frame(el)[,1],symbol, simplify = TRUE)[,2]
@@ -385,17 +458,154 @@ a_b_edgelist_to_matrix <- function(a= el$a, r= el$r, y= el$y, make.NA.zero=T){
     m[m==0] <- NA # relabel missing values as NA
     m <- m-1 # subtract one to adjust values back
     m
-    g
+   # g
     }
 }
 
 
 EL<- obs_pair 
+```
 
+
+## plotting
+
+grooming 
+```{r, matrix}
 #matrix of interactions for all indivduals
-vamp_matrix <- a_b_edgelist_to_matrix( a= EL$actor_name, r= EL$receiver_name, y=EL$n )
+vamp_matrix <- a_b_edgelist_to_matrix( a= EL$actor_name, r= EL$receiver_name, y=EL$n ) 
 vamp_matrix
 write.csv(vamp_matrix, paste("vamp_matrix_",  ".csv", sep = ""))
+
+#grooming
+vamp_matrix_grooming <- a_b_edgelist_to_matrix( a= obs_pair_grooming$actor_name, r= obs_pair_grooming$receiver_name, y=obs_pair_grooming$n ) #EL here is obs_pair..
+vamp_matrix_grooming
+write.csv(vamp_matrix_grooming, paste("vamp_matrix_grooming",  ".csv", sep = ""))
+
+
+
+#######
+#attempt t make own plot with 3 colors 
+
+#add same colors as actor colors in bat_groups to obs_pair if you want edges to have them
+obs_pair_grooming <- 
+      obs_pair_grooming %>%
+      left_join(bat_groups, by = c( "actor_name"= "bat_name_full")) %>% 
+      select(!group) 
+
+#need to delete extras to make it fit hwen plotting (edge_colors_zero <- filter(n!=0 )), and keep only the color column
+
+
+#maybe I need to delete the 0 values? 
+obs_pair_grooming_nozero <- obs_pair_grooming %>%
+      filter(n!=0) #remove edges that don't exist
+
+
+g_g <- graph_from_data_frame(obs_pair_grooming_nozero, directed = TRUE) #can change to 
+V(g_g) #get all vertices
+V(g_g)$group <- bat_groups$group
+V(g_g)$color <- bat_groups$color
+V(g_g)$sex <- "F" #sex, need to correct for 2 males, next line
+match(c("maui22"), V(g_g)$name) #14
+V(g_g)$sex[match(c("maui22"), V(g_g)$name)] <- "M" # match(c("maui22"), V(g_g)$name) pulls Maui
+V(g_g)$sex[match(c("ube22"), V(g_g)$name)] <- "M"
+E(g_g)$width <- scale(E(g_g)$n, center = FALSE)   #edge width, scaled
+E(g_g)$color <- obs_pair_grooming_nozero$color
+V(g_g)$label.cex <- 1.2
+V(g_g)$label.color <- "black"
+V(g_g)$label.family <- "sans"
+V(g_g)$shape = recode(V(g_g)$sex, F= "circle", M = "rectangle")
+V(g_g)$label.dist = 2.2
+
+
+
+
+#layout term determines the organization, can play with the options
+layout <-layout_nicely(g_g) #layout_with_kk(g_g) # layout_with_drl(g_g)  
+
+#graph_attr(g_g)
+
+#plotting
+
+#saving plot
+svg("grooming_network.svg", 7, 7)
+#png("grooming_network.png", 600, 600)
+
+grooming_network <- 
+      plot(g_g,
+     layout= layout,
+     vertex.label.dist = 2.2,
+     #vertex.label.family = "sans",
+   # edge.width = scale(E(g_g)$n, center= FALSE),
+    #edge.color = "black", 
+    edge.arrow.size = .5
+    
+     ) #main = "Title"
+
+dev.off() #end of printing 
+
+grooming_network 
+ 
+
+
+
+#play with different package, visnetwork, later. 
+visIgraph(g_g)
+#save as visplot so it's prettier 
+
+saveWidget(visIgraph(g_g), file = "full_grooming.html")
+
+to_vis <- toVisNetworkData(g_g)
+groom_nodes <- to_vis$nodes
+groom_edges <- to_vis$edges
+width <- groom_edges$width
+groom_nodes <- groom_nodes %>% select( !font.size, !font.color, !label.family, !label.dist)
+groom_edges <- groom_edges %>% select(!width)
+visNetwork_try <- visNetwork(groom_nodes, groom_edges)
+saveWidget(visNetwork_try, file= "visNetworktry.html")
+
+visIgraph(
+
+# other network things 
+degree(g_g) #degree
+# evcent(g_g) #eigenvector centrality
+edge_betweenness(g_g) #betweenness centrality: centrality to the network, shortest distance between conntections
+#page_rank()
+
+
+
+
+
+
+
+#goals: color by group
+#weight edges by # groomed
+#make spacing better
+#make font better
+#graph_from_adjacency_matrix?
+#obs pair before date
+#obs pair after date
+#grooming, mouthlicking aggression
+
+
+```
+
+
+
+
+```{r}
+
+#mouthlicking
+vamp_matrix_mouthlicking <- a_b_edgelist_to_matrix( a= obs_pair_mouthlicking$l_actor_name, r= obs_pair_mouthlicking$l_receiver_name, y=obs_pair_mouthlicking$n ) #EL here is obs_pair..
+vamp_matrix_mouthlicking
+write.csv(vamp_matrix_mouthlicking, paste("vamp_matrix_mouthlicking",  ".csv", sep = ""))
+
+#aggression
+vamp_matrix_aggression <- a_b_edgelist_to_matrix( a= obs_pair_aggression$l_actor_name, r= obs_pair_aggression$l_receiver_name, y=obs_pair_aggression$n ) #EL here is obs_pair..
+vamp_matrix_aggression
+write.csv(vamp_matrix_aggression, paste("vamp_matrix_aggression",  ".csv", sep = ""))
+
+
+
 
 #separate matrix by group
 # dolly bea alanis,cher, dolly, helen, judy, fergie, luna, manon, nelly
@@ -449,7 +659,7 @@ MakeEdgeLists(obs_pair_mouthlicking, behavior = "m")
 
 ```{r corplots}
 # ggcorplot
-library(ggplot2)
+
 
 #obs_pair$actor_name <- reorder(obs_pair$actor_name , obs_pair$n)
 obs_pair$receiver_name <- fct_relevel(obs_pair$receiver_name) #order both actor and receiver abc
