@@ -1,0 +1,132 @@
+---
+title: premet bats script"
+output: html_notebook
+---
+
+```{r}
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(Rcpp)
+library(tidyverse)
+
+```
+
+```{r}
+premet_vamps <- read_excel("~/GitHub/proximity-sensors/merge/LTM dyads?.xlsx", 
+    sheet = "ltm_dyad_or_triad")
+View(premet_vamps)
+
+
+v2022_bats <- read_excel("2022_vampire_data.xlsx", sheet = "bats")
+
+#table with just the various bat names 
+v2022_names <- v2022_bats %>% select(bat_name, formal_ID, new_formal_ID, source)
+
+
+```
+
+```{r}
+# rename to human readable names with year
+
+  # add 22 to names (e.g. bea22), and a column with location attached as well 
+v2022_names <- v2022_names %>% 
+      mutate(bat_name_full = paste(bat_name, "22", sep="")) %>%
+      mutate(l_bat_name_full = paste( sep = "_", source, bat_name_full))
+view(v2022_names)
+
+      #make long version of names by the names I want 
+nameslong <- v2022_names %>%
+  gather(ID_type, IDS, c(bat_name, formal_ID, new_formal_ID), na.rm = TRUE) %>%
+  arrange(bat_name_full)
+nameslong
+
+      #join by bat1 to add  names(match IDS and bat1)
+premet_vamps <- premet_vamps %>%
+  left_join(nameslong, by = c("bat1" = "IDS")) %>%
+  select( - ID_type) %>%
+      rename(batname_1 = bat_name_full) %>%
+      rename(l_batname_1 = l_bat_name_full)
+
+      #join by bat2 to add  names(match IDS and bat1)
+premet_vamps <- premet_vamps %>%
+  left_join(nameslong, by = c("bat2" = "IDS")) %>%
+  select( - ID_type) %>%
+      rename(batname_2 = bat_name_full) %>%
+      rename(l_batname_2 = l_bat_name_full)
+
+      #join by bat3 to add  names(match IDS and bat1)
+premet_vamps <- premet_vamps %>%
+  left_join(nameslong, by = c("bat3" = "IDS")) %>%
+  select( - ID_type) %>%
+      rename(batname_3 = bat_name_full) %>%
+      rename(l_batname_3 = l_bat_name_full)
+
+  
+
+#replace raya "capira" with "bayano"- her functional group
+# premet_vamps<- 
+#      premet_vamps %>%
+#       mutate(l_batname1 = recode(l_batname1, "capira_raya22" = "bayano_raya22")) %>%
+#       mutate(l_batname2 = recode(l_batname2, "capira_raya22" = "bayano_raya22")) %>%
+#        mutate(l_batname3 = recode(l_batname3, "capira_raya22" = "bayano_raya22"))
+
+living_bats <- 
+      v2022_bats %>% select(bat_name, deceased_premerge) %>%
+      filter( is.na(deceased_premerge)) %>%
+      mutate(bat_name_full = paste0(bat_name, "22")) %>%
+      select(-bat_name, -deceased_premerge) %>%
+      filter(bat_name_full != "NA22") #removes juveniles, no names
+       #keep only NA for deceased
+
+living_bats <- as.list(living_bats$bat_name_full)
+
+#remove names of dead bats
+premet_vamps <- premet_vamps %>%
+  mutate(across(c(batname_1,batname_2,batname_3), ~ ifelse(. %in% as.list(living_bats), ., NA))) %>%
+      select(-l_batname_1, -l_batname_2, -l_batname_3) %>%
+      relocate(batname_1, batname_2, batname_3)
+
+      
+#next bit of script shows all  dyads instead of full triads
+premet_vamps_long_a <- premet_vamps %>%
+      pivot_longer(
+            cols=c(batname_2, batname_3), 
+            names_to = "interaction_role",
+            values_to = "bat_b"
+      ) %>%
+      rename("bat_a" = batname_1) %>%
+      relocate(bat_a, bat_b) %>%
+      select(-interaction_role)
+
+premet_vamps <-
+      premet_vamps %>%
+      select(-batname_1) %>%
+      rename("bat_a" = batname_2, 
+             "bat_b" = batname_3) %>%
+      relocate(bat_a, bat_b) %>%
+      rbind(premet_vamps_long_a) %>%
+      mutate(across(c(bat_a,bat_b), ~ ifelse(. %in% c("maui22", "ube22"), NA, .))) %>% #these bats arrived later, were previous bats with same band ids
+      filter(!if_any(c(bat_a,bat_b), is.na)) %>% #filter out rows where a bat is NA
+      arrange(bat_a, bat_b) %>%
+       distinct(.keep_all = TRUE) %>% #get rid of duplicate rows %>%
+       mutate( bata_batb = paste(bat_a, bat_b, sep = "_")) %>% #first step undirected dyad
+      mutate(bata_batb = ifelse(bat_a < bat_b, bata_batb, paste(bat_b, bat_a, sep = "_"))  ) %>% # directionless dyad
+      relocate(bata_batb) %>%
+      arrange(bata_batb) %>%
+      rename( "source.b1" = source.x, 
+              "source.b2" = source.y, 
+              "source.b3"= source )#fix source labels
+write.csv(premet_vamps, file = "previously_met_vampires.csv")
+
+time_spent_prev_vamps <- 
+      premet_vamps %>%
+      group_by(bata_batb) %>%
+      summarize( days_together = sum(days)) %>%
+      arrange(-days_together)
+
+time_spent_prev_vamps
+
+write.csv(obs_pair, file = paste0("observations_pairs_", Behavior,  ".csv", sep =""))
+```
+
