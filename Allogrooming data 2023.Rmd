@@ -24,7 +24,7 @@ library(htmlwidgets)
 v2022_bats <- read_excel("2022_vampire_data.xlsx", sheet = "bats")
 
 
-# allogrooming data
+# allogrooming data from security cams
 v2022_allogr <- read_excel("2022_vampire_data.xlsx", 
     sheet = "Flight_cage", col_types = c("text", 
         "text", "text", "numeric", "numeric", 
@@ -44,6 +44,7 @@ v2022_allogr <- read_excel("2022_vampire_data.xlsx",
 #         "text", "text", "text", "text"))
 #View(v2022_allogr)
 
+#allogrooming data from focal trials
 v2022_focal <- read_excel("2022_vampire_data.xlsx", 
     sheet = "Focal_pruebas", col_types = c("text", 
         "text", "text", "numeric", "numeric", 
@@ -70,20 +71,10 @@ v2022_allogr <-
       bind_rows(v2022_allogr, v2022_focal)
 view(v2022_allogr)
 str(v2022_allogr)
-```
 
-### Cleaning 
-```{r cleaning}
-
-
-#make the text in actor and receiver lowercase (to match bat names)
-v2022_allogr <- v2022_allogr %>% mutate(actor= tolower(actor), receiver = tolower(receiver)) 
-
-#make the text in behavior lowercase (to be consistent)
-v2022_allogr <- v2022_allogr %>% mutate(behavior= tolower(behavior)) 
 
 #table with just the various bat names 
-v2022_names <- v2022_bats %>% select(bat_name, formal_ID, new_formal_ID, source)
+v2022_names <- v2022_bats %>% select(bat_name, formal_ID, new_formal_ID, source, deceased_premerge)
 
 
 # rename to human readable names with year
@@ -100,8 +91,68 @@ view(v2022_names)
       #make long version of names by the names I want 
 nameslong <- v2022_names %>%
   gather(ID_type, IDS, c(bat_name, formal_ID, new_formal_ID), na.rm = TRUE) %>%
-  arrange(bat_name_full)
+  arrange(bat_name_full) %>%
+      mutate(source = ifelse(bat_name_full == "raya22", "bayano", source)) #raya lived in bayano
 nameslong
+
+
+#dyads and triads that had previously met
+premet_vamps <- read_excel("~/GitHub/proximity-sensors/merge/LTM dyads?.xlsx", 
+    sheet = "ltm_dyad_or_triad")
+```
+
+#Make dataframe of all directed and undirected dyads and their group
+```{r}
+#missing <- data.frame(actor_name = bat_list, receiver_name = bat_list, n= 1)
+
+#kick out deceased premerge bats and NA bats 
+v2022_names_present <- v2022_names %>%
+      filter(is.na(deceased_premerge)) %>%
+      filter(!is.na(bat_name))
+
+# make directed dyads with locations
+dyads.d <- data.frame(loc_bata = v2022_names_present$l_bat_name_full, loc_batb = v2022_names_present$l_bat_name_full) %>% #make two columns with names
+      complete(.,loc_bata, loc_batb) %>% #expand grid
+      separate_wider_delim(loc_bata, "_", names = c("locA", "batA")) %>% #split column a
+      separate_wider_delim(loc_batb, "_", names = c("locB", "batB")) %>% #split column b
+      filter(batA != batB) %>% #kick out dyads with same bat %>%
+      mutate(Dyad = paste(batA, batB, sep = "_"), 
+             LocDyad = paste(locA, locB, sep = "_")) %>% #combine batA and B columns 
+      relocate(Dyad, LocDyad)
+
+#make directed dyads only between groups ("new" relationships)
+dyads.d_new <- dyads.d %>%
+      filter(locA != locB)  # will have to decide how to deal with males, who are listed as "captive.born" 
+      
+#make undirected dyads of all bats
+dyads.u <- dyads.d %>%
+      mutate(Dyad_undirected = ifelse(batA < batB, Dyad, paste(batB, batA, sep = "_")) ) %>% # directionless dyad
+      relocate(Dyad_undirected) %>%
+      mutate(Loc_undirected = ifelse(locA < locB, LocDyad, paste(locB, locA, sep = "_")) ) %>% #undirected groups
+      group_by(Dyad_undirected) %>%
+      slice_head(n=1) #only 1 row per undirected dyad
+      #drop Dyad, group, and/or instead just take first of each
+
+#make undirected dyads between groups ("new" relationships)
+
+
+
+dyads.d # all directed dyads and their locations
+dyads.d_new # all new directed dyads
+
+```
+
+
+### Cleaning 
+```{r cleaning}
+
+
+#make the text in actor and receiver lowercase (to match bat names)
+v2022_allogr <- v2022_allogr %>% mutate(actor= tolower(actor), receiver = tolower(receiver)) 
+
+#make the text in behavior lowercase (to be consistent)
+v2022_allogr <- v2022_allogr %>% mutate(behavior= tolower(behavior)) 
+
 
       #join by actor to add actor names(match IDS and actor)
 v2022_allogr <- v2022_allogr %>%
@@ -260,8 +311,111 @@ head(v2022_allogr %>%
 
 
 ```
+## Making list of all the cross-group dyads that had previously met
+```{r}
+
+#convert from ID to names
+#join by bat1 to add  names(match IDS and bat1)
+premet_vamps <- premet_vamps %>%
+  left_join(nameslong, by = c("bat1" = "IDS")) %>%
+  select( - ID_type) %>%
+      rename(batname_1 = bat_name_full) %>%
+      rename(l_batname_1 = l_bat_name_full)
+
+#join by bat2 to add  names(match IDS and bat1)
+premet_vamps <- premet_vamps %>%
+  left_join(nameslong, by = c("bat2" = "IDS")) %>%
+  select( - ID_type) %>%
+      rename(batname_2 = bat_name_full) %>%
+      rename(l_batname_2 = l_bat_name_full)
+
+#join by bat3 to add  names(match IDS and bat1)
+premet_vamps <- premet_vamps %>%
+  left_join(nameslong, by = c("bat3" = "IDS")) %>%
+  select( - ID_type) %>%
+      rename(batname_3 = bat_name_full) %>%
+      rename(l_batname_3 = l_bat_name_full)
+
+  
+
+#replace raya "capira" with "bayano"- her functional group
+# premet_vamps<- 
+#      premet_vamps %>%
+#       mutate(l_batname1 = recode(l_batname1, "capira_raya22" = "bayano_raya22")) %>%
+#       mutate(l_batname2 = recode(l_batname2, "capira_raya22" = "bayano_raya22")) %>%
+#        mutate(l_batname3 = recode(l_batname3, "capira_raya22" = "bayano_raya22"))
 
 
+living_bats <- as.list(living_bats$bat_name_full)
+
+#remove names of dead bats
+premet_vamps <- premet_vamps %>%
+  mutate(across(c(batname_1,batname_2,batname_3), ~ ifelse(. %in% as.list(living_bats), ., NA))) %>%
+      select(-l_batname_1, -l_batname_2, -l_batname_3) %>%
+      relocate(batname_1, batname_2, batname_3)
+
+      
+#next bit of script shows all  dyads instead of full triads
+premet_vamps_long_a <- premet_vamps %>%
+      pivot_longer(
+            cols=c(batname_2, batname_3), 
+            names_to = "interaction_role",
+            values_to = "bat_b"
+      ) %>%
+      rename("bat_a" = batname_1) %>%
+      relocate(bat_a, bat_b) %>%
+      select(-interaction_role)
+
+premet_vamps <-
+      premet_vamps %>%
+      select(-batname_1) %>%
+      rename("bat_a" = batname_2, 
+             "bat_b" = batname_3) %>%
+      relocate(bat_a, bat_b) %>%
+      rbind(premet_vamps_long_a) %>%
+      mutate(across(c(bat_a,bat_b), ~ ifelse(. %in% c("maui22", "ube22"), NA, .))) %>% #these bats arrived later, were previous bats with same band ids
+      filter(!if_any(c(bat_a,bat_b), is.na)) %>% #filter out rows where a bat is NA
+      arrange(bat_a, bat_b) %>%
+       distinct(.keep_all = TRUE) %>% #get rid of duplicate rows %>%
+       mutate( bata_batb = paste(bat_a, bat_b, sep = "_")) %>% #first step undirected dyad
+      mutate(bata_batb = ifelse(bat_a < bat_b, bata_batb, paste(bat_b, bat_a, sep = "_"))  ) %>% # directionless dyad
+      relocate(bata_batb) %>%
+      arrange(bata_batb) %>%
+      rename( "source.b1" = source.x, 
+              "source.b2" = source.y, 
+              "source.b3"= source )#fix source labels
+#write.csv(premet_vamps, file = "previously_met_vampires.csv")
+
+time_spent_prev_vamps <- 
+      premet_vamps %>%
+      group_by(bata_batb) %>%
+      summarize( days_together = sum(days)) %>%
+      arrange(-days_together)
+#write.csv(time_spent_prev_vamps, file = "time_spent_previous_vamps.csv")
+
+
+time_spent_prev_vamps
+premet_vamps
+
+time_spent_prev_vamps %>%
+      summarize( n_dyads = n(), mostdays = max(days_together), leastdays = min(days_together))
+#write.csv(obs_pair, file = paste0("observations_pairs_", Behavior,  ".csv", sep =""))
+```
+
+Most recent date bats have been together
+```{r}
+#least and most recent date cross-group dyads were together
+premet_vamps %>%
+      summarize(mostrecent = max(date_end), leastrecent = min(date_end))
+
+#bats involved in these cross-group dyads
+unique(c(premet_vamps$bat_a, premet_vamps$bat_b))
+
+#number of bats involved in these cross-group dyads
+length(unique(c(premet_vamps$bat_a, premet_vamps$bat_b)))
+
+```
+#### Cleaning done###
 
 ### Number of Observations per individual
 ```{r Obs per individual}
@@ -367,7 +521,6 @@ write.csv(obs_pair, file = paste0("observations_pairs_", Behavior,  ".csv", sep 
 #       arrange(group)
 
 return(obs_pair)
-      
       
 }
 
@@ -1644,6 +1797,20 @@ str(all_net)
 
 ```
 
+
+
+
+## Did bats that had met before groom or mouthlick faster than other bats? 
+
+
+```{r}
+obs_pair_mouthlicking_postmerge <- v2022_allogr %>%
+      filter(date > "2024-06-26") %>%
+       ObsMatrix(data = ., Behavior = "m") 
+obs_pair_mouthlicking_postmerge<- rbind(missing, obs_pair_mouthlicking_postmerge) %>%
+      complete(actor_name, receiver_name, fill = list(n=0)) #%>% #fill in missing combinations within group%>%
+#filter(actor_name != receiver_name) 
+```
 
 
 
